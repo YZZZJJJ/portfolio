@@ -15,6 +15,7 @@
         .btn:hover { background: #2563eb; }
         .btn:disabled { opacity: 0.65; cursor: wait; }
         .tip { margin-top: 10px; font-size: 13px; color: #aaa; }
+        .upload-status { min-height: 20px; margin-top: 12px; color: #93c5fd; font-size: 14px; }
         .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px; }
         .img-card { background: #1f1f1f; border-radius: 10px; overflow: hidden; transition: 0.3s; }
         .img-card:hover { transform: translateY(-5px); }
@@ -33,9 +34,10 @@
         <div class="upload-area">
             <h3>上传作品图片</h3>
             <p class="tip">这里是原子智障机，很高兴见到你呀o(*￣▽￣*)ブ</p>
-            <p class="tip">请不要删除网页中图片哦谢谢！</p>
-            <input type="file" id="fileInput" accept="image/*">
+            <p class="tip">请不要删除网页中图片哦谢谢！支持一次选择多张图片。</p>
+            <input type="file" id="fileInput" accept="image/*" multiple>
             <button class="btn" id="chooseButton" type="button">选择图片上传</button>
+            <div class="upload-status" id="uploadStatus" aria-live="polite"></div>
         </div>
         <div class="gallery" id="gallery"></div>
         <div class="modal" id="modal" role="dialog" aria-modal="true" aria-label="图片预览">
@@ -69,6 +71,7 @@
         const uploadPreset = 'atom_portfolio';
         const fileInput = document.getElementById('fileInput');
         const chooseButton = document.getElementById('chooseButton');
+        const uploadStatus = document.getElementById('uploadStatus');
         const gallery = document.getElementById('gallery');
         const modal = document.getElementById('modal');
         const modalCanvas = document.getElementById('modalCanvas');
@@ -153,7 +156,6 @@
 
         function openModal(src) {
             const image = new Image();
-            // Cloudinary 需允许跨域读取，才能将图片安全地绘制到 Canvas。
             image.crossOrigin = 'anonymous';
             image.onload = () => {
                 activeImage = image;
@@ -177,36 +179,64 @@
         document.addEventListener('keydown', event => { if (event.key === 'Escape') closeModal(); });
         window.addEventListener('resize', () => { if (activeImage) drawWatermark(activeImage); });
 
-        fileInput.addEventListener('change', async event => {
-            const file = event.target.files[0];
-            if (!file) return;
+        async function uploadImage(file) {
             const formData = new FormData();
             formData.append('file', file);
             formData.append('upload_preset', uploadPreset);
+
+            const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
+                method: 'POST',
+                body: formData
+            });
+            const responseText = await response.text();
+            let data;
+            try {
+                data = JSON.parse(responseText);
+            } catch {
+                throw new Error(`Cloudinary 返回了非 JSON 数据（HTTP ${response.status}）：${responseText}`);
+            }
+
+            const imageUrl = data.secure_url || data.url;
+            if (!response.ok || !imageUrl) {
+                const message = data.error?.message || data.message || responseText || 'Cloudinary 没有返回图片地址';
+                throw new Error(`上传失败：${message}`);
+            }
+
+            await push(imagesRef, { url: imageUrl });
+        }
+
+        fileInput.addEventListener('change', async event => {
+            const files = Array.from(event.target.files || []);
+            if (!files.length) return;
+
             chooseButton.disabled = true;
-            chooseButton.textContent = '上传中...';
+            const total = files.length;
+            let successCount = 0;
+            const failedFiles = [];
+            uploadStatus.textContent = `准备上传 ${total} 张图片...`;
 
             try {
-                const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, { method: 'POST', body: formData });
-                const responseText = await response.text();
-                let data;
-                try { data = JSON.parse(responseText); } catch { throw new Error(`Cloudinary 返回了非 JSON 数据（HTTP ${response.status}）：${responseText}`); }
-                console.log('Cloudinary response:', { status: response.status, ok: response.ok, body: data });
-
-                const imageUrl = data.secure_url || data.url;
-                if (!response.ok || !imageUrl) {
-                    const message = data.error?.message || data.message || responseText || 'Cloudinary 没有返回图片地址';
-                    throw new Error(`上传失败：${message}`);
+                // 逐张上传，避免同时上传大量文件导致浏览器或 Cloudinary 请求过载。
+                for (const file of files) {
+                    uploadStatus.textContent = `正在上传 ${successCount + failedFiles.length + 1}/${total}：${file.name}`;
+                    try {
+                        await uploadImage(file);
+                        successCount += 1;
+                    } catch (error) {
+                        console.error(`上传 ${file.name} 失败：`, error);
+                        failedFiles.push(`${file.name}（${error.message}）`);
+                    }
                 }
-                await push(imagesRef, { url: imageUrl });
-                alert('上传成功！');
-            } catch (error) {
-                console.error('上传失败：', error);
-                alert(error.message);
+
+                if (failedFiles.length) {
+                    alert(`完成：成功 ${successCount} 张，失败 ${failedFiles.length} 张。\n\n失败文件：\n${failedFiles.join('\n')}`);
+                } else {
+                    alert(`全部上传成功，共 ${successCount} 张！`);
+                }
             } finally {
                 fileInput.value = '';
                 chooseButton.disabled = false;
-                chooseButton.textContent = '选择图片上传';
+                uploadStatus.textContent = '';
             }
         });
     </script>
