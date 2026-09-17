@@ -142,7 +142,9 @@
                 // HTTP 200 只代表请求成功，还要确认返回了图片地址。
                 const imageUrl = data.secure_url || data.url;
                 if (!response.ok || !imageUrl) {
-                    const cloudinaryMessage = data.error?.message || '响应中没有 secure_url';
+                    const cloudinaryMessage = data.error?.message ||data.message ||`完整响应：${responseText}`;
+
+throw new Error(`${cloudinaryMessage}（HTTP ${response.status}）`);
                     throw new Error(`${cloudinaryMessage}（HTTP ${response.status}）`);
                 }
 
