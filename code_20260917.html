@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>作品集在线画廊</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: system-ui, sans-serif;
+        }
+        body {
+            background-color: #121212;
+            color:#fff;
+            padding: 2rem 1rem;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            text-align:center;
+            margin-bottom:2rem;
+        }
+        .upload-area {
+            background: #1f1f1f;
+            padding: 2rem;
+            border-radius:12px;
+            text-align:center;
+            margin-bottom:2rem;
+        }
+        #fileInput {
+            display: none;
+        }
+        .btn {
+            padding:12px 26px;
+            background:#3b82f6;
+            color:#fff;
+            border:none;
+            border-radius:8px;
+            font-size:16px;
+            cursor:pointer;
+        }
+        .btn:hover {
+            background:#2563eb;
+        }
+        .tip {
+            margin-top:10px;
+            font-size:13px;
+            color:#aaa;
+        }
+        .gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px,1fr));
+            gap:20px;
+        }
+        .img-card {
+            background:#1f1f1f;
+            border-radius:10px;
+            overflow:hidden;
+            transition:0.3s;
+        }
+        .img-card:hover {
+            transform: translateY(-5px);
+        }
+        .img-card img {
+            width:100%;
+            height:220px;
+            object-fit:cover;
+            cursor:pointer;
+        }
+        .desc {
+            padding:12px;
+            font-size:14px;
+        }
+        .del-btn {
+            width:100%;
+            padding:8px;
+            background:#333;
+            color:#ff8888;
+            border:none;
+            cursor:pointer;
+        }
+        /* 大图弹窗 */
+        .modal {
+            position:fixed;
+            top:0;left:0;
+            width:100vw;height:100vh;
+            background:rgba(0,0,0,0.93);
+            display:none;
+            align-items:center;
+            justify-content:center;
+            z-index:999;
+        }
+        .modal img {
+            max-width:92%;
+            max-height:92vh;
+        }
+        .close {
+            position:absolute;
+            top:24px;right:36px;
+            color:#fff;font-size:42px;cursor:pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>作品集在线画廊</h1>
+            <p>楔形建筑 · 鲁迅主题设计</p>
+        </div>
+
+        <div class="upload-area">
+            <h3>上传作品图片</h3>
+            <p class="tip">图片上传至Cloudinary图床，本机刷新页面不会丢失</p>
+            <input type="file" id="fileInput" accept="image/*">
+            <button class="btn" onclick="document.getElementById('fileInput').click()">选择图片上传</button>
+        </div>
+
+        <div class="gallery" id="gallery"></div>
+
+        <!-- 大图弹窗 -->
+        <div class="modal" id="modal">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <img id="modalImg">
+        </div>
+    </div>
+
+    <script>
+        // ============ 在这里替换成你自己Cloudinary的信息 ============
+        const cloudName = "你的cloudName";
+        const uploadPreset = "你的uploadPreset";
+        // ==========================================================
+
+        const fileInput = document.getElementById('fileInput');
+        const gallery = document.getElementById('gallery');
+        const modal = document.getElementById('modal');
+        const modalImg = document.getElementById('modalImg');
+
+        // 读取本地存储，页面加载渲染已有图片
+        let imageList = JSON.parse(localStorage.getItem("galleryImages")) || [];
+
+        function renderGallery(){
+            gallery.innerHTML = "";
+            imageList.forEach((item,idx)=>{
+                const card = document.createElement('div');
+                card.className = "img-card";
+                card.innerHTML = `
+                    <img src="${item.url}" onclick="openModal('${item.url}')">
+                    <div class="desc">作品 #${idx+1}</div>
+                    <button class="del-btn" onclick="deleteImage(${idx})">删除</button>
+                `
+                gallery.appendChild(card);
+            })
+        }
+        // 打开关闭大图
+        function openModal(src){
+            modal.style.display = "flex";
+            modalImg.src = src;
+        }
+        function closeModal(){
+            modal.style.display = "none";
+        }
+        modal.addEventListener('click', e=>{if(e.target===modal) closeModal()})
+
+        // 删除图片
+        function deleteImage(index){
+            imageList.splice(index,1);
+            localStorage.setItem("galleryImages", JSON.stringify(imageList));
+            renderGallery();
+        }
+
+        // 上传图片到Cloudinary
+        fileInput.addEventListener('change', async function(e){
+            const file = e.target.files[0];
+            if(!file) return;
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('upload_preset', uploadPreset);
+
+            try{
+                const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,{
+                    method:"POST",
+                    body:formData
+                })
+                const data = await res.json();
+                if(data.secure_url){
+                    imageList.push({url: data.secure_url})
+                    localStorage.setItem("galleryImages", JSON.stringify(imageList));
+                    renderGallery();
+                    alert("上传成功！");
+                }
+            }catch(err){
+                alert("上传失败，请检查Cloudinary配置");
+                console.error(err);
+            }
+            fileInput.value = null;
+        })
+
+        renderGallery();
+    </script>
+</body>
+</html>
