@@ -131,21 +131,29 @@
                     method: 'POST',
                     body: formData
                 });
+
                 const responseText = await response.text();
-                let data;
+                let data = {};
                 try {
                     data = JSON.parse(responseText);
                 } catch {
-                    throw new Error(`Cloudinary 返回了非 JSON 数据（HTTP ${response.status}）`);
+                    data = { rawResponse: responseText };
                 }
 
-                // HTTP 200 只代表请求成功，还要确认返回了图片地址。
                 const imageUrl = data.secure_url || data.url;
-                if (!response.ok || !imageUrl) {
-                    const cloudinaryMessage = data.error?.message ||data.message ||`完整响应：${responseText}`;
+                console.log('Cloudinary response:', {
+                    status: response.status,
+                    ok: response.ok,
+                    body: data
+                });
 
-throw new Error(`${cloudinaryMessage}（HTTP ${response.status}）`);
-                    throw new Error(`${cloudinaryMessage}（HTTP ${response.status}）`);
+                if (!response.ok || !imageUrl) {
+                    const message =
+                        data.error?.message ||
+                        data.message ||
+                        (responseText || 'Cloudinary 没有返回图片地址');
+
+                    throw new Error(`上传失败：${message}\n\n完整响应：${JSON.stringify(data, null, 2) || responseText}`);
                 }
 
                 imageList.push({ url: imageUrl });
@@ -154,7 +162,7 @@ throw new Error(`${cloudinaryMessage}（HTTP ${response.status}）`);
                 alert('上传成功！');
             } catch (error) {
                 console.error('Cloudinary 上传失败：', error);
-                alert(`上传失败：${error.message}`);
+                alert(error.message);
             } finally {
                 fileInput.value = '';
                 chooseButton.disabled = false;
