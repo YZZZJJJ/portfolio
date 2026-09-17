@@ -28,10 +28,7 @@
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>作品集在线画廊</h1>
-            <p>作品展示</p>
-        </div>
+        <div class="header"><h1>作品集在线画廊</h1><p>作品展示</p></div>
         <div class="upload-area">
             <h3>上传作品图片</h3>
             <p class="tip">图片上传至 Cloudinary；图片列表保存在本浏览器中</p>
@@ -48,7 +45,6 @@
     <script>
         const cloudName = 'trbh8p1q';
         const uploadPreset = 'atom_portfolio';
-
         const fileInput = document.getElementById('fileInput');
         const chooseButton = document.getElementById('chooseButton');
         const gallery = document.getElementById('gallery');
@@ -66,25 +62,20 @@
             }
         }
 
-        function saveImages() {
-            localStorage.setItem('galleryImages', JSON.stringify(imageList));
-        }
+        function saveImages() { localStorage.setItem('galleryImages', JSON.stringify(imageList)); }
 
         function renderGallery() {
             gallery.replaceChildren();
             imageList.forEach((item, index) => {
                 const card = document.createElement('div');
                 card.className = 'img-card';
-
                 const image = document.createElement('img');
                 image.src = item.url;
                 image.alt = `作品 #${index + 1}`;
                 image.addEventListener('click', () => openModal(item.url));
-
                 const description = document.createElement('div');
                 description.className = 'desc';
                 description.textContent = `作品 #${index + 1}`;
-
                 const deleteButton = document.createElement('button');
                 deleteButton.className = 'del-btn';
                 deleteButton.type = 'button';
@@ -94,68 +85,44 @@
                     saveImages();
                     renderGallery();
                 });
-
                 card.append(image, description, deleteButton);
                 gallery.appendChild(card);
             });
         }
 
-        function openModal(src) {
-            modalImg.src = src;
-            modal.style.display = 'flex';
-        }
-
-        function closeModal() {
-            modal.style.display = 'none';
-            modalImg.removeAttribute('src');
-        }
-
+        function openModal(src) { modalImg.src = src; modal.style.display = 'flex'; }
+        function closeModal() { modal.style.display = 'none'; modalImg.removeAttribute('src'); }
         chooseButton.addEventListener('click', () => fileInput.click());
         document.getElementById('closeButton').addEventListener('click', closeModal);
-        modal.addEventListener('click', event => {
-            if (event.target === modal) closeModal();
-        });
+        modal.addEventListener('click', event => { if (event.target === modal) closeModal(); });
 
         fileInput.addEventListener('change', async event => {
             const file = event.target.files[0];
             if (!file) return;
-
             const formData = new FormData();
             formData.append('file', file);
             formData.append('upload_preset', uploadPreset);
+            // 禁止异步 eager transformation，否则 Cloudinary 只返回 pending/batch_id。
+            formData.append('eager_async', 'false');
             chooseButton.disabled = true;
             chooseButton.textContent = '上传中...';
 
             try {
-                const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
-                    method: 'POST',
-                    body: formData
-                });
-
+                const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, { method: 'POST', body: formData });
                 const responseText = await response.text();
-                let data = {};
-                try {
-                    data = JSON.parse(responseText);
-                } catch {
-                    data = { rawResponse: responseText };
+                let data;
+                try { data = JSON.parse(responseText); } catch { throw new Error(`Cloudinary 返回了非 JSON 数据（HTTP ${response.status}）：${responseText}`); }
+                console.log('Cloudinary response:', { status: response.status, ok: response.ok, body: data });
+
+                if (data.status === 'pending' && data.batch_id) {
+                    throw new Error('Cloudinary 正在异步处理图片。请在 Upload preset「atom_portfolio」中关闭 Eager Transformations 的 Asynchronous 选项，然后重试。');
                 }
 
                 const imageUrl = data.secure_url || data.url;
-                console.log('Cloudinary response:', {
-                    status: response.status,
-                    ok: response.ok,
-                    body: data
-                });
-
                 if (!response.ok || !imageUrl) {
-                    const message =
-                        data.error?.message ||
-                        data.message ||
-                        (responseText || 'Cloudinary 没有返回图片地址');
-
-                    throw new Error(`上传失败：${message}\n\n完整响应：${JSON.stringify(data, null, 2) || responseText}`);
+                    const message = data.error?.message || data.message || responseText || 'Cloudinary 没有返回图片地址';
+                    throw new Error(`上传失败：${message}`);
                 }
-
                 imageList.push({ url: imageUrl });
                 saveImages();
                 renderGallery();
