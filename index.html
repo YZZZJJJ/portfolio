@@ -22,7 +22,8 @@
         .desc { padding: 12px; font-size: 14px; }
         .del-btn { width: 100%; padding: 8px; background: #333; color: #ff8888; border: none; cursor: pointer; }
         .modal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.93); display: none; align-items: center; justify-content: center; z-index: 999; }
-        .modal img { max-width: 92%; max-height: 92vh; }
+        /* 大图使用 Canvas 显示，水印会直接绘制进 Canvas 像素中。 */
+        #modalCanvas { max-width: 92%; max-height: 92vh; display: block; }
         .close { position: absolute; top: 24px; right: 36px; color: #fff; font-size: 42px; cursor: pointer; background: transparent; border: 0; }
     </style>
 </head>
@@ -38,7 +39,7 @@
         <div class="gallery" id="gallery"></div>
         <div class="modal" id="modal" role="dialog" aria-modal="true" aria-label="图片预览">
             <button class="close" id="closeButton" type="button" aria-label="关闭">&times;</button>
-            <img id="modalImg" alt="作品大图">
+            <canvas id="modalCanvas" aria-label="带水印的作品大图"></canvas>
         </div>
     </div>
 
@@ -69,8 +70,9 @@
         const chooseButton = document.getElementById('chooseButton');
         const gallery = document.getElementById('gallery');
         const modal = document.getElementById('modal');
-        const modalImg = document.getElementById('modalImg');
+        const modalCanvas = document.getElementById('modalCanvas');
         let imageList = [];
+        let activeImage = null;
 
         function renderGallery() {
             gallery.replaceChildren();
@@ -102,7 +104,6 @@
             });
         }
 
-        // 监听 Firebase Realtime Database，任何客户端的新增或删除都会自动刷新画廊。
         onValue(imagesRef, snapshot => {
             const data = snapshot.val() || {};
             imageList = Object.entries(data)
@@ -114,11 +115,66 @@
             alert(`读取图片列表失败：${error.message}`);
         });
 
-        function openModal(src) { modalImg.src = src; modal.style.display = 'flex'; }
-        function closeModal() { modal.style.display = 'none'; modalImg.removeAttribute('src'); }
+        // 把原图绘制到 Canvas 后再绘制重复水印，避免大图预览直接暴露无水印图片元素。
+        function drawWatermark(image) {
+            const maxWidth = window.innerWidth * 0.92;
+            const maxHeight = window.innerHeight * 0.86;
+            const scale = Math.min(maxWidth / image.naturalWidth, maxHeight / image.naturalHeight, 1);
+            const width = Math.max(1, Math.round(image.naturalWidth * scale));
+            const height = Math.max(1, Math.round(image.naturalHeight * scale));
+            const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+            modalCanvas.width = Math.round(width * pixelRatio);
+            modalCanvas.height = Math.round(height * pixelRatio);
+            modalCanvas.style.width = `${width}px`;
+            modalCanvas.style.height = `${height}px`;
+
+            const context = modalCanvas.getContext('2d');
+            context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+            context.clearRect(0, 0, width, height);
+            context.drawImage(image, 0, 0, width, height);
+
+            context.save();
+            context.globalAlpha = 0.28;
+            context.fillStyle = '#ffffff';
+            context.font = `600 ${Math.max(16, Math.min(30, width / 15))}px system-ui, sans-serif`;
+            context.textAlign = 'center';
+            context.textBaseline = 'middle';
+            context.rotate(-Math.PI / 7);
+            const spacingX = Math.max(180, width / 2);
+            const spacingY = Math.max(90, height / 4);
+            for (let y = -height; y < height * 2; y += spacingY) {
+                for (let x = -width; x < width * 2; x += spacingX) {
+                    context.fillText('作品集在线画廊', x, y);
+                }
+            }
+            context.restore();
+        }
+
+        function openModal(src) {
+            const image = new Image();
+            // Cloudinary 需允许跨域读取，才能将图片安全地绘制到 Canvas。
+            image.crossOrigin = 'anonymous';
+            image.onload = () => {
+                activeImage = image;
+                drawWatermark(image);
+                modal.style.display = 'flex';
+            };
+            image.onerror = () => alert('图片加载失败，无法生成带水印的大图。');
+            image.src = src;
+        }
+
+        function closeModal() {
+            modal.style.display = 'none';
+            activeImage = null;
+            const context = modalCanvas.getContext('2d');
+            context.clearRect(0, 0, modalCanvas.width, modalCanvas.height);
+        }
+
         chooseButton.addEventListener('click', () => fileInput.click());
         document.getElementById('closeButton').addEventListener('click', closeModal);
         modal.addEventListener('click', event => { if (event.target === modal) closeModal(); });
+        document.addEventListener('keydown', event => { if (event.key === 'Escape') closeModal(); });
+        window.addEventListener('resize', () => { if (activeImage) drawWatermark(activeImage); });
 
         fileInput.addEventListener('change', async event => {
             const file = event.target.files[0];
